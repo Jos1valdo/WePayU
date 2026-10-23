@@ -2,7 +2,10 @@ package br.ufal.ic.p2.wepayu.services;
 
 import br.ufal.ic.p2.wepayu.Exception.EmpregadoNaoExisteException;
 import br.ufal.ic.p2.wepayu.models.*;
+
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Collections;
 
 public class EmpregadoService {
     private final Map<String, Empregado> empregados;
@@ -31,11 +34,11 @@ public class EmpregadoService {
         for (Empregado e : empregados.values()) {
             if (e.getNome().equals(nome) && ++contador == indice) return e.getId();
         }
-        throw new RuntimeException("Empregado nao existe.");
+        throw new RuntimeException("Nao ha empregado com esse nome.");
     }
 
     public int quantidade() { return empregados.size(); }
     public int getProximoId() { return proximoId; }
     public void setProximoId(int id) { proximoId = id; }
-    public Map<String, Empregado> getEmpregados() { return empregados; }
+    public Map<String, Empregado> getEmpregados() { return Collections.unmodifiableMap(empregados); }
 }

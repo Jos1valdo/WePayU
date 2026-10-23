@@ -2,6 +2,7 @@ package br.ufal.ic.p2.wepayu.services;
 
 import br.ufal.ic.p2.wepayu.models.AgendaPagamento;
 import java.util.Map;
+import java.util.Collections;
 
 public class AgendaPagamentoService {
     private final Map<String, AgendaPagamento> agendas;
@@ -17,5 +18,5 @@ public class AgendaPagamentoService {
     }
 
     public boolean existe(String descricao) { return agendas.containsKey(descricao); }
-    public Map<String, AgendaPagamento> getAgendas() { return agendas; }
+    public Map<String, AgendaPagamento> getAgendas() { return Collections.unmodifiableMap(agendas); }
 }
