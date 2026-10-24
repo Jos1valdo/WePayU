@@ -4,8 +4,11 @@ import java.io.Serializable;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.temporal.WeekFields;
 
 public class AgendaPagamento implements Serializable {
+    private static final long serialVersionUID = 1L;
+
     private final String descricao;
     private final String tipo;
     private final int intervalo;
@@ -16,71 +19,167 @@ public class AgendaPagamento implements Serializable {
         if (descricao == null || descricao.trim().isEmpty()) {
             throw new IllegalArgumentException("Descricao de agenda invalida");
         }
-        this.descricao = descricao.trim();
-        String[] p = this.descricao.split(" ");
-        if (p.length < 2) throw new IllegalArgumentException("Descricao de agenda invalida");
 
-        if (p[0].equals("mensal")) {
+        this.descricao = descricao.trim();
+        String[] partes = this.descricao.split("\\s+");
+
+        if ("mensal".equals(partes[0])) {
+            validarQuantidade(partes, 2);
             tipo = "mensal";
             intervalo = 1;
-            if (p[1].equals("$")) {
+
+            if ("$".equals(partes[1])) {
                 ultimoDiaUtil = true;
                 dia = 0;
-            } else {
-                ultimoDiaUtil = false;
-                dia = Integer.parseInt(p[1]);
-                if (dia < 1 || dia > 31) throw new IllegalArgumentException("Descricao de agenda invalida");
+                return;
             }
-        } else if (p[0].equals("semanal")) {
+
+            ultimoDiaUtil = false;
+            dia = inteiro(partes[1]);
+            if (dia < 1 || dia > 28) {
+                throw new IllegalArgumentException("Descricao de agenda invalida");
+            }
+            return;
+        }
+
+        if ("semanal".equals(partes[0])) {
+            if (partes.length != 2 && partes.length != 3) {
+                throw new IllegalArgumentException("Descricao de agenda invalida");
+            }
+
             tipo = "semanal";
             ultimoDiaUtil = false;
-            if (p.length == 2) {
+
+            if (partes.length == 2) {
                 intervalo = 1;
-                dia = Integer.parseInt(p[1]);
+                dia = diaSemana(partes[1]);
             } else {
-                intervalo = Integer.parseInt(p[1]);
-                int diaTemp;
-                try { diaTemp = Integer.parseInt(p[2]); } catch (NumberFormatException ex) { diaTemp = diaSemana(p[2]); }
-                dia = diaTemp;
+                intervalo = inteiro(partes[1]);
+                dia = diaSemana(partes[2]);
+                if (intervalo < 1 || intervalo > 52) {
+                    throw new IllegalArgumentException("Descricao de agenda invalida");
+                }
             }
-            if (intervalo < 1 || dia < 1 || dia > 7) throw new IllegalArgumentException("Descricao de agenda invalida");
-        } else {
+            return;
+        }
+
+        throw new IllegalArgumentException("Descricao de agenda invalida");
+    }
+
+    private static void validarQuantidade(String[] partes, int quantidade) {
+        if (partes.length != quantidade) {
             throw new IllegalArgumentException("Descricao de agenda invalida");
         }
     }
 
-    private int diaSemana(String s) {
-        switch (s.toLowerCase()) {
-            case "segunda": return 1;
-            case "terca":
-            case "terça": return 2;
-            case "quarta": return 3;
-            case "quinta": return 4;
-            case "sexta": return 5;
-            case "sabado":
-            case "sábado": return 6;
-            case "domingo": return 7;
-            default: throw new IllegalArgumentException("Descricao de agenda invalida");
+    private static int inteiro(String valor) {
+        try {
+            return Integer.parseInt(valor);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Descricao de agenda invalida", e);
         }
     }
 
-    public String getDescricao() { return descricao; }
+    private static int diaSemana(String valor) {
+        try {
+            int numero = Integer.parseInt(valor);
+            if (numero < 1 || numero > 7) {
+                throw new IllegalArgumentException("Descricao de agenda invalida");
+            }
+            return numero;
+        } catch (NumberFormatException ignored) {
+            switch (valor.toLowerCase()) {
+                case "segunda": return 1;
+                case "terca":
+                case "terça": return 2;
+                case "quarta": return 3;
+                case "quinta": return 4;
+                case "sexta": return 5;
+                case "sabado":
+                case "sábado": return 6;
+                case "domingo": return 7;
+                default: throw new IllegalArgumentException("Descricao de agenda invalida");
+            }
+        }
+    }
+
+    public String getDescricao() {
+        return descricao;
+    }
+
+    public int getIntervalo() {
+        return intervalo;
+    }
+
+    public boolean ehMensal() {
+        return "mensal".equals(tipo);
+    }
+
+    public boolean ehSemanal() {
+        return "semanal".equals(tipo);
+    }
 
     public boolean devePagar(LocalDate data) {
-        if (tipo.equals("mensal")) {
+        if (ehMensal()) {
             if (ultimoDiaUtil) {
-                LocalDate ultimo = YearMonth.from(data).atEndOfMonth();
-                while (ultimo.getDayOfWeek() == DayOfWeek.SATURDAY || ultimo.getDayOfWeek() == DayOfWeek.SUNDAY) {
-                    ultimo = ultimo.minusDays(1);
-                }
-                return data.equals(ultimo);
+                return data.equals(ultimoDiaUtil(data));
             }
             return data.getDayOfMonth() == dia;
         }
 
-        if (data.getDayOfWeek().getValue() != dia) return false;
-        LocalDate first = (intervalo == 1) ? LocalDate.of(2005, 1, 7) : LocalDate.of(2005, 1, 14);
-        long semanas = java.time.temporal.ChronoUnit.WEEKS.between(first, data);
-        return semanas >= 0 && semanas % intervalo == 0;
+        if (data.getDayOfWeek().getValue() != dia) {
+            return false;
+        }
+
+        int semana = data.get(WeekFields.ISO.weekOfWeekBasedYear());
+        return semana % intervalo == 0;
+    }
+
+    /**
+     * Retorna o inicio do periodo de pagamento que termina em {@code data}.
+     * Quando ja existe uma data de pagamento anterior, ela sera utilizada
+     * como limite. Caso contrario, procura o pagamento anterior da agenda.
+     */
+    public LocalDate inicioPeriodo(LocalDate data, LocalDate dataContrato) {
+        LocalDate inicio;
+        LocalDate anterior = pagamentoAnterior(data);
+
+        if (anterior == null) {
+            inicio = data;
+        } else {
+            inicio = anterior.plusDays(1);
+        }
+
+        if (dataContrato != null && inicio.isBefore(dataContrato)) {
+            inicio = dataContrato;
+        }
+        return inicio;
+    }
+
+    private LocalDate pagamentoAnterior(LocalDate data) {
+        if (ehMensal()) {
+            LocalDate anterior = data.minusMonths(1);
+            if (ultimoDiaUtil) {
+                return ultimoDiaUtil(anterior);
+            }
+            int ultimoDia = YearMonth.from(anterior).lengthOfMonth();
+            return anterior.withDayOfMonth(Math.min(dia, ultimoDia));
+        }
+
+        LocalDate candidato = data.minusDays(1);
+        for (int i = 0; i < 370; i++, candidato = candidato.minusDays(1)) {
+            if (devePagar(candidato)) {
+                return candidato;
+            }
+        }
+        return null;
+    }
+
+    private static LocalDate ultimoDiaUtil(LocalDate data) {
+        LocalDate ultimo = YearMonth.from(data).atEndOfMonth();
+        while (ultimo.getDayOfWeek() == DayOfWeek.SATURDAY || ultimo.getDayOfWeek() == DayOfWeek.SUNDAY) {
+            ultimo = ultimo.minusDays(1);
+        }
+        return ultimo;
     }
 }

@@ -9,26 +9,37 @@ public class Assalariado extends Empregado {
         setDataContrato(LocalDate.of(2005, 1, 1));
     }
 
+    @Override
     public String getTipo() { return "assalariado"; }
+
+    @Override
     public boolean ehHorista() { return false; }
+
+    @Override
     public boolean ehAssalariado() { return true; }
+
+    @Override
     public boolean ehComissionado() { return false; }
+
+    @Override
     public String agendaPadrao() { return "mensal $"; }
 
-    public double salarioBasePagamento(LocalDate data) { return floor2(getSalario()); }
-    public double calcularPagamento(LocalDate data) { return salarioBasePagamento(data); }
-
-    public Empregado copiar() {
-        Assalariado n = new Assalariado(getId(), getNome(), getEndereco(), getSalario());
-        copiarPara(n); return n;
+    @Override
+    public double salarioBasePagamento(LocalDate data) {
+        AgendaPagamento agenda = new AgendaPagamento(getAgendaPagamento());
+        if (agenda.ehMensal()) return floor2(getSalario());
+        return floor2(getSalario() * 12.0 / 52.0 * agenda.getIntervalo());
     }
-    protected void copiarPara(Empregado n) {
-        n.setComissao(getComissao()); n.setMetodoPagamento(getMetodoPagamento()); n.setBanco(getBanco());
-        n.setAgencia(getAgencia()); n.setContaCorrente(getContaCorrente()); n.setSindicalizado(isSindicalizado());
-        n.setIdSindicato(getIdSindicato()); n.setTaxaSindical(getTaxaSindical()); n.setAgendaPagamento(getAgendaPagamento());
-        n.setDataContrato(getDataContrato());
-        for (CartaoDePonto c : getCartoes()) n.adicionarCartao(new CartaoDePonto(c.getData(), c.getHoras()));
-        for (ResultadoVenda v : getVendasLista()) n.adicionarVenda(new ResultadoVenda(v.getData(), v.getValor()));
-        for (TaxaServico t : getTaxasLista()) n.adicionarTaxa(new TaxaServico(t.getData(), t.getValor()));
+
+    @Override
+    public double calcularPagamento(LocalDate data) {
+        return salarioBasePagamento(data);
+    }
+
+    @Override
+    public Empregado copiar() {
+        Assalariado novo = new Assalariado(getId(), getNome(), getEndereco(), getSalario());
+        copiarDadosPara(novo);
+        return novo;
     }
 }
