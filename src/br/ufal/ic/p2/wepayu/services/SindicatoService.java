@@ -2,7 +2,7 @@ package br.ufal.ic.p2.wepayu.services;
 
 import br.ufal.ic.p2.wepayu.models.*;
 import java.time.LocalDate;
-import java.util.HashMap;
+//import java.util.HashMap;
 import java.util.Map;
 
 public class SindicatoService {

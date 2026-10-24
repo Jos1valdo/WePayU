@@ -3,7 +3,7 @@ package br.ufal.ic.p2.wepayu.services;
 import br.ufal.ic.p2.wepayu.Exception.EmpregadoNaoExisteException;
 import br.ufal.ic.p2.wepayu.models.*;
 
-import java.util.LinkedHashMap;
+//import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Collections;
 
