@@ -135,11 +135,6 @@ public class AgendaPagamento implements Serializable {
         return semana % intervalo == 0;
     }
 
-    /**
-     * Retorna o inicio do periodo de pagamento que termina em {@code data}.
-     * Quando ja existe uma data de pagamento anterior, ela sera utilizada
-     * como limite. Caso contrario, procura o pagamento anterior da agenda.
-     */
     public LocalDate inicioPeriodo(LocalDate data, LocalDate dataContrato) {
         LocalDate inicio;
         LocalDate anterior = pagamentoAnterior(data);
