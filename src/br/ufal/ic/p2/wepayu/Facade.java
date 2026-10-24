@@ -1,5 +1,6 @@
 package br.ufal.ic.p2.wepayu;
 
+//import br.ufal.ic.p2.wepayu.Exception.EmpregadoNaoExisteException;
 import br.ufal.ic.p2.wepayu.models.*;
 import br.ufal.ic.p2.wepayu.services.*;
 
@@ -115,31 +116,14 @@ public class Facade {
         }
     }
 
-   public String getEmpregadoPorNome(String nome, int indice) {
-
-    aberto();
-
-    if (nome == null || nome.isEmpty()) {
-        throw new RuntimeException("Nome nao pode ser nulo.");
+    public String getEmpregadoPorNome(String nome, int indice) {
+        aberto(); return empregadoService.porNome(nome, indice);
     }
 
-    int contador = 0;
-
-    for (Empregado empregado : empregados.values()) {
-
-        if (empregado.getNome().equals(nome)) {
-
-            contador++;
-
-            if (contador == indice) {
-                return empregado.getId();
-            }
-        }
+    public int getNumeroDeEmpregados() {
+        aberto();
+        return empregadoService.quantidade();
     }
-
-    throw new RuntimeException("Nao ha empregado com esse nome.");
-}
-    public int getNumeroDeEmpregados() { aberto(); return empregadoService.quantidade(); }
 
     public void alteraEmpregado(String emp, String atributo, String valor) {
         aberto(); Empregado empregado = empregadoService.buscar(emp); validarAlteracao(atributo);
@@ -218,20 +202,17 @@ public class Facade {
             if (tipo.equals("comissionado") && novaComissao != null) atual.setComissao(novaComissao);
             return;
         }
-        Empregado novo = EmpregadoFactory.criar(atual.getId(), atual.getNome(), atual.getEndereco(), tipo, atual.getSalario(), tipo.equals("comissionado") ? novaComissao : null);
-        copiarEstado(atual, novo);
+        Empregado novo = EmpregadoFactory.criar(
+                atual.getId(),
+                atual.getNome(),
+                atual.getEndereco(),
+                tipo,
+                atual.getSalario(),
+                tipo.equals("comissionado") ? novaComissao : null
+        );
+        atual.copiarDadosPara(novo);
         if (tipo.equals("comissionado")) novo.setComissao(novaComissao);
         empregados.put(atual.getId(), novo);
-    }
-
-    private void copiarEstado(Empregado antigo, Empregado novo) {
-        novo.setComissao(antigo.getComissao()); novo.setMetodoPagamento(antigo.getMetodoPagamento());
-        novo.setBanco(antigo.getBanco()); novo.setAgencia(antigo.getAgencia()); novo.setContaCorrente(antigo.getContaCorrente());
-        novo.setSindicalizado(antigo.isSindicalizado()); novo.setIdSindicato(antigo.getIdSindicato()); novo.setTaxaSindical(antigo.getTaxaSindical());
-        novo.setAgendaPagamento(antigo.getAgendaPagamento()); novo.setDataContrato(antigo.getDataContrato());
-        for (CartaoDePonto c : antigo.getCartoes()) novo.adicionarCartao(new CartaoDePonto(c.getData(), c.getHoras()));
-        for (ResultadoVenda v : antigo.getVendasLista()) novo.adicionarVenda(new ResultadoVenda(v.getData(), v.getValor()));
-        for (TaxaServico t : antigo.getTaxasLista()) novo.adicionarTaxa(new TaxaServico(t.getData(), t.getValor()));
     }
 
     private void alterarPagamento(Empregado empregado, String metodo, String banco, String agencia, String conta) {
@@ -281,13 +262,32 @@ public class Facade {
         LocalDate a=dataInicial(inicio), b=dataFinal(fim); validarIntervalo(a,b); return moeda(sindicatoService.totalTaxas(emp,a,b));
     }
 
-    public String totalFolha(String data) { aberto(); return moeda(folhaService.total(data(data))); }
+    public String totalFolha(String data) {
+        aberto();
+        return moeda(folhaService.total(data(data)));
+    }
 
     public void rodaFolha(String data, String saida) {
-        aberto(); LocalDate d=data(data); salvarUndo(); redo.clear(); String conteudo=folhaService.gerar(d);
+        aberto();
+        LocalDate d = data(data);
+        String conteudo = folhaService.gerar(d);
+
+        try {
+            File arquivo = new File(saida);
+            File pasta = arquivo.getParentFile();
+            if (pasta != null) pasta.mkdirs();
+
+            try (FileWriter writer = new FileWriter(arquivo)) {
+                writer.write(conteudo);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Erro ao gerar folha de pagamento.", e);
+        }
+
+        // O estado de pagamento somente muda depois que o arquivo foi gravado.
+        salvarUndo();
         folhaService.marcarPagamentos(d);
-        try { File arquivo=new File(saida); File pasta=arquivo.getParentFile(); if(pasta!=null)pasta.mkdirs(); try(FileWriter w=new FileWriter(arquivo)){w.write(conteudo);} }
-        catch(IOException e){throw new RuntimeException("Erro ao gerar folha de pagamento.");}
+        redo.clear();
     }
 
     public void undo() { aberto(); if(undo.isEmpty()) throw new RuntimeException("Nao ha comando a desfazer."); Estado atual=estado(); redo.push(atual); restaurar(undo.pop()); }
@@ -298,42 +298,220 @@ public class Facade {
     private void salvarUndo() { undo.push(estado()); }
 
     private Estado estado() {
-        Map<String,Empregado> e=new LinkedHashMap<>(); for(Map.Entry<String,Empregado> x:empregados.entrySet()) e.put(x.getKey(),x.getValue().copiar());
-        Map<String,AgendaPagamento> a=new LinkedHashMap<>(); for(String k:agendas.keySet()) a.put(k,new AgendaPagamento(k));
-        return new Estado(e,new HashMap<>(sindicatoParaEmpregado),a,empregadoService.getProximoId());
+        Map<String, Empregado> empregadosCopiados = new LinkedHashMap<>();
+        for (Map.Entry<String, Empregado> entrada : empregados.entrySet()) {
+            empregadosCopiados.put(entrada.getKey(), entrada.getValue().copiar());
+        }
+
+        Map<String, AgendaPagamento> agendasCopiadas = new LinkedHashMap<>();
+        for (String descricao : agendas.keySet()) {
+            agendasCopiadas.put(descricao, new AgendaPagamento(descricao));
+        }
+
+        return new Estado(
+                empregadosCopiados,
+                new HashMap<>(sindicatoParaEmpregado),
+                agendasCopiadas,
+                empregadoService.getProximoId()
+        );
     }
 
-    private void restaurar(Estado s) {
-        empregados.clear(); for(Map.Entry<String,Empregado> e:s.empregados.entrySet()) empregados.put(e.getKey(),e.getValue().copiar());
-        sindicatoParaEmpregado.clear(); sindicatoParaEmpregado.putAll(s.sindicato);
-        agendas.clear(); for(Map.Entry<String,AgendaPagamento> e:s.agendas.entrySet()) agendas.put(e.getKey(),new AgendaPagamento(e.getKey()));
-        empregadoService.setProximoId(s.proximoId);
+    private void restaurar(Estado estado) {
+        empregados.clear();
+        for (Map.Entry<String, Empregado> entrada : estado.empregados.entrySet()) {
+            empregados.put(entrada.getKey(), entrada.getValue().copiar());
+        }
+
+        sindicatoParaEmpregado.clear();
+        sindicatoParaEmpregado.putAll(estado.sindicato);
+
+        agendas.clear();
+        for (Map.Entry<String, AgendaPagamento> entrada : estado.agendas.entrySet()) {
+            agendas.put(entrada.getKey(), new AgendaPagamento(entrada.getKey()));
+        }
+
+        empregadoService.setProximoId(estado.proximoId);
     }
 
-    private void salvar() { try(ObjectOutputStream out=new ObjectOutputStream(new FileOutputStream(ARQUIVO))){out.writeObject(estado());} catch(IOException e){throw new RuntimeException("Erro ao encerrar sistema.");} }
+    private void salvar() {
+        try (ObjectOutputStream out = new ObjectOutputStream(new FileOutputStream(ARQUIVO))) {
+            out.writeObject(estado());
+        } catch (IOException e) {
+            throw new RuntimeException("Erro ao encerrar sistema.", e);
+        }
+    }
+
     private void carregar() {
-        File f=new File(ARQUIVO); if(!f.exists())return;
-        try(ObjectInputStream in=new ObjectInputStream(new FileInputStream(f))){restaurar((Estado)in.readObject());}catch(Exception ignored){empregados.clear(); sindicatoParaEmpregado.clear(); agendas.clear(); empregadoService.setProximoId(1);}
+        File arquivo = new File(ARQUIVO);
+        if (!arquivo.exists()) return;
+
+        try (ObjectInputStream input = new ObjectInputStream(new FileInputStream(arquivo))) {
+            restaurar((Estado) input.readObject());
+        } catch (IOException | ClassNotFoundException e) {
+            throw new RuntimeException("Erro ao carregar o sistema.", e);
+        }
     }
 
     private static class Estado implements Serializable {
-        Map<String,Empregado> empregados; Map<String,String> sindicato; Map<String,AgendaPagamento> agendas; int proximoId;
-        Estado(Map<String,Empregado> e,Map<String,String>s,Map<String,AgendaPagamento>a,int p){empregados=e;sindicato=s;agendas=a;proximoId=p;}
+        private static final long serialVersionUID = 1L;
+
+        private final Map<String, Empregado> empregados;
+        private final Map<String, String> sindicato;
+        private final Map<String, AgendaPagamento> agendas;
+        private final int proximoId;
+
+        Estado(Map<String, Empregado> empregados,
+               Map<String, String> sindicato,
+               Map<String, AgendaPagamento> agendas,
+               int proximoId) {
+            this.empregados = empregados;
+            this.sindicato = sindicato;
+            this.agendas = agendas;
+            this.proximoId = proximoId;
+        }
     }
 
-    private void aberto(){if(encerrado)throw new RuntimeException("Nao pode dar comandos depois de encerrarSistema.");}
-    private void validarNome(String v){if(v==null||v.isEmpty())throw new RuntimeException("Nome nao pode ser nulo.");}
-    private void validarEndereco(String v){if(v==null||v.isEmpty())throw new RuntimeException("Endereco nao pode ser nulo.");}
-    private void validarTipo(String v){if(v==null||!(v.equals("horista")||v.equals("assalariado")||v.equals("comissionado")))throw new RuntimeException("Tipo invalido.");}
-    private double salario(String v){if(v==null||v.isEmpty())throw new RuntimeException("Salario nao pode ser nulo.");try{double x=Double.parseDouble(v.replace(',','.'));if(x<0)throw new RuntimeException("Salario deve ser nao-negativo.");return x;}catch(NumberFormatException e){throw new RuntimeException("Salario deve ser numerico.");}}
-    private double comissao(String v){if(v==null||v.isEmpty())throw new RuntimeException("Comissao nao pode ser nula.");try{double x=Double.parseDouble(v.replace(',','.'));if(x<0)throw new RuntimeException("Comissao deve ser nao-negativa.");return x;}catch(NumberFormatException e){throw new RuntimeException("Comissao deve ser numerica.");}}
-    private double taxaSindical(String v){if(v==null||v.isEmpty())throw new RuntimeException("Taxa sindical nao pode ser nula.");try{double x=Double.parseDouble(v.replace(',','.'));if(x<0)throw new RuntimeException("Taxa sindical deve ser nao-negativa.");return x;}catch(NumberFormatException e){throw new RuntimeException("Taxa sindical deve ser numerica.");}}
-    private double horas(String v){try{double x=Double.parseDouble(v.replace(',','.'));if(x<=0)throw new RuntimeException("Horas devem ser positivas.");return x;}catch(NumberFormatException e){throw new RuntimeException("Horas devem ser positivas.");}}
-    private double valorPositivo(String v){try{double x=Double.parseDouble(v.replace(',','.'));if(x<=0)throw new RuntimeException("Valor deve ser positivo.");return x;}catch(NumberFormatException e){throw new RuntimeException("Valor deve ser positivo.");}}
-    private LocalDate data(String v){try{return LocalDate.parse(v,DF);}catch(Exception e){throw new RuntimeException("Data invalida.");}}
-    private LocalDate dataInicial(String v){try{return LocalDate.parse(v,DF);}catch(Exception e){throw new RuntimeException("Data inicial invalida.");}}
-    private LocalDate dataFinal(String v){try{return LocalDate.parse(v,DF);}catch(Exception e){throw new RuntimeException("Data final invalida.");}}
-    private void validarIntervalo(LocalDate a,LocalDate b){if(a.isAfter(b))throw new RuntimeException("Data inicial nao pode ser posterior aa data final.");}
-    private String moeda(double v){return String.format(Locale.US,"%.2f",v).replace('.',',');}
-    private String numero(double v){if(Math.abs(v-Math.rint(v))<1e-9)return Long.toString(Math.round(v));String s=String.format(Locale.US,"%.2f",v).replace('.',',');while(s.endsWith("0"))s=s.substring(0,s.length()-1);return s;}
+    private void aberto() {
+        if (encerrado) {
+            throw new RuntimeException("Nao pode dar comandos depois de encerrarSistema.");
+        }
+    }
+
+    private void validarNome(String valor) {
+        if (valor == null || valor.isEmpty()) {
+            throw new RuntimeException("Nome nao pode ser nulo.");
+        }
+    }
+
+    private void validarEndereco(String valor) {
+        if (valor == null || valor.isEmpty()) {
+            throw new RuntimeException("Endereco nao pode ser nulo.");
+        }
+    }
+
+    private void validarTipo(String valor) {
+        if (valor == null ||
+                !(valor.equals("horista") || valor.equals("assalariado") || valor.equals("comissionado"))) {
+            throw new RuntimeException("Tipo invalido.");
+        }
+    }
+
+    private double salario(String valor) {
+        if (valor == null || valor.isEmpty()) {
+            throw new RuntimeException("Salario nao pode ser nulo.");
+        }
+
+        try {
+            double numero = Double.parseDouble(valor.replace(',', '.'));
+            if (numero < 0) {
+                throw new RuntimeException("Salario deve ser nao-negativo.");
+            }
+            return numero;
+        } catch (NumberFormatException e) {
+            throw new RuntimeException("Salario deve ser numerico.", e);
+        }
+    }
+
+    private double comissao(String valor) {
+        if (valor == null || valor.isEmpty()) {
+            throw new RuntimeException("Comissao nao pode ser nula.");
+        }
+
+        try {
+            double numero = Double.parseDouble(valor.replace(',', '.'));
+            if (numero < 0) {
+                throw new RuntimeException("Comissao deve ser nao-negativa.");
+            }
+            return numero;
+        } catch (NumberFormatException e) {
+            throw new RuntimeException("Comissao deve ser numerica.", e);
+        }
+    }
+
+    private double taxaSindical(String valor) {
+        if (valor == null || valor.isEmpty()) {
+            throw new RuntimeException("Taxa sindical nao pode ser nula.");
+        }
+
+        try {
+            double numero = Double.parseDouble(valor.replace(',', '.'));
+            if (numero < 0) {
+                throw new RuntimeException("Taxa sindical deve ser nao-negativa.");
+            }
+            return numero;
+        } catch (NumberFormatException e) {
+            throw new RuntimeException("Taxa sindical deve ser numerica.", e);
+        }
+    }
+
+    private double horas(String valor) {
+        try {
+            double numero = Double.parseDouble(valor.replace(',', '.'));
+            if (numero <= 0) {
+                throw new RuntimeException("Horas devem ser positivas.");
+            }
+            return numero;
+        } catch (NumberFormatException e) {
+            throw new RuntimeException("Horas devem ser positivas.", e);
+        }
+    }
+
+    private double valorPositivo(String valor) {
+        try {
+            double numero = Double.parseDouble(valor.replace(',', '.'));
+            if (numero <= 0) {
+                throw new RuntimeException("Valor deve ser positivo.");
+            }
+            return numero;
+        } catch (NumberFormatException e) {
+            throw new RuntimeException("Valor deve ser positivo.", e);
+        }
+    }
+
+    private LocalDate data(String valor) {
+        try {
+            return LocalDate.parse(valor, DF);
+        } catch (Exception e) {
+            throw new RuntimeException("Data invalida.", e);
+        }
+    }
+
+    private LocalDate dataInicial(String valor) {
+        try {
+            return LocalDate.parse(valor, DF);
+        } catch (Exception e) {
+            throw new RuntimeException("Data inicial invalida.", e);
+        }
+    }
+
+    private LocalDate dataFinal(String valor) {
+        try {
+            return LocalDate.parse(valor, DF);
+        } catch (Exception e) {
+            throw new RuntimeException("Data final invalida.", e);
+        }
+    }
+
+    private void validarIntervalo(LocalDate inicio, LocalDate fim) {
+        if (inicio.isAfter(fim)) {
+            throw new RuntimeException("Data inicial nao pode ser posterior aa data final.");
+        }
+    }
+
+    private String moeda(double valor) {
+        return String.format(Locale.US, "%.2f", valor).replace('.', ',');
+    }
+
+    private String numero(double valor) {
+        if (Math.abs(valor - Math.rint(valor)) < 1e-9) {
+            return Long.toString(Math.round(valor));
+        }
+
+        String resultado = String.format(Locale.US, "%.2f", valor).replace('.', ',');
+        while (resultado.endsWith("0")) {
+            resultado = resultado.substring(0, resultado.length() - 1);
+        }
+        return resultado;
+    }
+
 }
